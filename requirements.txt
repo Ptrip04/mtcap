@@ -6,3 +6,5 @@ scikit-learn
 google-generativeai
 Pillow
 requests
+python-docx
+pandas
