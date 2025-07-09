@@ -7,6 +7,9 @@ from PIL import Image
 import fitz  # PyMuPDF
 import json
 from sklearn.datasets import fetch_20newsgroups
+import docx  # Import python-docx
+import pandas as pd # Import pandas
+
 
 # --- CONFIGURATION ---
 # Load environment variables from a .env file (if it exists)
@@ -99,9 +102,40 @@ def pdf_to_images(uploaded_file):
             return []
     return images
 
+def read_docx(uploaded_file):
+    """Reads content from a .docx file."""
+    try:
+        doc = docx.Document(uploaded_file)
+        text = []
+        for paragraph in doc.paragraphs:
+            text.append(paragraph.text)
+        return "\n".join(text)
+    except Exception as e:
+        st.error(f"Error processing DOCX: {e}")
+        return None
+
+def read_txt(uploaded_file):
+    """Reads content from a .txt file."""
+    try:
+        # Decode as utf-8, with errors ignored
+        return uploaded_file.getvalue().decode("utf-8", errors="ignore")
+    except Exception as e:
+        st.error(f"Error processing TXT: {e}")
+        return None
+
+def read_csv(uploaded_file):
+    """Reads content from a .csv file and converts it to a string."""
+    try:
+        df = pd.read_csv(uploaded_file)
+        return df.to_string() # Or df.to_csv() for CSV format
+    except Exception as e:
+        st.error(f"Error processing CSV: {e}")
+        return None
+
+
 def prepare_documents_for_model(uploaded_files):
     """
-    Prepares uploaded files (PDFs or images) for the Gemini model.
+    Prepares uploaded files (PDFs, images, DOCX, TXT, CSV) for the Gemini model.
     This supports SRS Requirement 3.1.1 and 3.1.5 (Multi-Modal Analysis).
     """
     document_parts = []
@@ -122,6 +156,19 @@ def prepare_documents_for_model(uploaded_files):
             img = Image.open(uploaded_file)
             # Convert PIL Image to a format compatible with the model
             document_parts.append(img)
+        elif file_extension == ".docx":
+            text_content = read_docx(uploaded_file)
+            if text_content:
+                document_parts.append(text_content) # Add text as part of the prompt
+        elif file_extension == ".txt":
+            text_content = read_txt(uploaded_file)
+            if text_content:
+                document_parts.append(text_content) # Add text as part of the prompt
+        elif file_extension == ".csv":
+            text_content = read_csv(uploaded_file)
+            if text_content:
+                document_parts.append(text_content) # Add text as part of the prompt
+
     return document_parts
 
 
@@ -142,7 +189,7 @@ with st.sidebar:
     # SRS Requirement 3.1.1: Document Input Handling
     uploaded_files = st.file_uploader(
         "1. Upload Your Documents",
-        type=["pdf", "png", "jpg", "jpeg"],
+        type=["pdf", "png", "jpg", "jpeg", "docx", "txt", "csv"], # Added new file types
         accept_multiple_files=True,
         help="Upload contracts, blueprints, handwritten notes, etc."
     )
@@ -234,7 +281,7 @@ if submit_button:
                 2. Extract the data exactly as requested.
                 3. If the request involves tables (especially ones split across pages, per SRS Req 3.1.4), consolidate them into a single coherent structure.
                 4. For legal-specific requests (clauses, risks, summaries per SRS Req 3.1.7), provide the text of the clause, a brief risk assessment if applicable, or a summary as requested.
-                5. Structure your final output as a single, valid JSON object. Do not include any explanatory text, comments, or markdown formatting like ```json ... ``` before or after the JSON. The output must be parsable.
+                5. Structure your final output as a single, valid JSON object. Do not include any explanatory text, comments, or markdown formatting like ```json ... ``` before or after the JSON. The output must be parseable.
                 6. If a piece of information cannot be found, represent its value as `null` in the JSON.
                 """
 
@@ -262,11 +309,19 @@ if submit_button:
 
                     with col2:
                         st.info("Document Preview")
-                        # Show thumbnails of the first few pages/images
-                        for doc in document_parts[:5]: # Show max 5 previews
-                            st.image(doc, use_column_width=True)
+                        # Show previews of the first few document parts
+                        # Need to handle different types for preview
+                        for i, doc_part in enumerate(document_parts[:5]): # Show max 5 previews
+                            if isinstance(doc_part, Image.Image):
+                                st.image(doc_part, use_column_width=True, caption=f"Preview of Document Part {i+1} (Image)")
+                            elif isinstance(doc_part, str):
+                                # Display text content, maybe truncated
+                                st.text_area(f"Preview of Document Part {i+1} (Text)", doc_part[:500] + "..." if len(doc_part) > 500 else doc_part, height=200)
+
+
                         if len(document_parts) > 5:
-                            st.write(f"... and {len(document_parts) - 5} more pages/images.")
+                            st.write(f"... and {len(document_parts) - 5} more parts.")
+
 
                     # SRS Requirement 3.1.9: Output Generation (Downloadable)
                     st.download_button(
